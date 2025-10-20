@@ -4,19 +4,22 @@ from time import sleep
 from binascii import hexlify, unhexlify
 from smartcard.util import toHexString
 from smartcard.Exceptions import CardConnectionException, NoCardException
-from .responses import get_readable_response
+from ...apdu_utils.responses import get_readable_response
 
-def find_files_by_id(conn, cla, throttle_msec=0, max_fail=5, verbose=False):
-    if type(cla) == str:
-        cla = int(cla,16)
+def secret_id_enum(conn, cla, throttle_msec=0):
+    throttle_sec = throttle_msec / 1000
+
+
+
+def verify_brute(conn, cla, secret_iter, throttle_msec=0, secret_id=0, verbose=False):
     throttle_sec = throttle_msec / 1000
     file_list = []
-    for i in range(256):
+    for i in secret_iter:
         for j in range(256):
-            apdu = [cla, 0xa4, 0, 0, 2, i, j]
+            apdu = [cla, 0x20, 0, secret_id]
             try_counter = 0
             if verbose:
-                print(f"\rTrying {i:02x}{j:02x}", end='', flush=True)
+                print("\rTrying %2x%2x" % (i, j), end='', flush=True)
             while True:
                 resp = sw1 = sw2 = None
                 try:
@@ -42,8 +45,6 @@ def find_files_by_id(conn, cla, throttle_msec=0, max_fail=5, verbose=False):
 
 
 def find_files_by_path(conn, cla, path=None, throttle_msec=0, max_fail=5, verbose=False):
-    if type(cla) == str:
-        cla = int(cla,16)
     if path is None:
         path = []
     throttle_sec = throttle_msec / 1000
@@ -82,8 +83,6 @@ def find_files_by_path(conn, cla, path=None, throttle_msec=0, max_fail=5, verbos
 
 def find_files_by_name(conn, cla, prefix=None, brute_length=1, throttle_msec=0,
                        max_fail=5, verbose=False, tarpit_threshold=100):
-    if type(cla) == str:
-        cla = int(cla,16)
     if prefix is None:
         prefix = []
     elif len(prefix) >= 16:
@@ -95,7 +94,7 @@ def find_files_by_name(conn, cla, prefix=None, brute_length=1, throttle_msec=0,
         apdu = [cla, 0xa4, 4, 0, filename_len] + prefix + list(filename)
         try_counter = needs_reconnect = 0
         if verbose:
-            print(f"\rDiscovering file name: {toHexString(list(prefix))} {toHexString(list(filename))}", end='', flush=True)
+            print(f"\rTrying {toHexString(list(prefix))}{toHexString(list(filename))}", end='', flush=True)
         # check filename
         while True:
             resp = sw1 = sw2 = None
@@ -118,6 +117,8 @@ def find_files_by_name(conn, cla, prefix=None, brute_length=1, throttle_msec=0,
                 exit()
         if sw1 in [0x90, 0x61]:
             file_list.append(prefix + list(filename))
+    if verbose:
+        print()
     if len(file_list) >= tarpit_threshold ** brute_length:
         # some cards return positive results for any file starting with certain prefixes
         return []
@@ -126,17 +127,16 @@ def find_files_by_name(conn, cla, prefix=None, brute_length=1, throttle_msec=0,
         longer_filenames += find_files_by_name(conn, cla, identified_file,
                                                brute_length=1, throttle_msec=throttle_msec,
                                                max_fail=max_fail, verbose=verbose)
-    if longer_filenames:
-        return longer_filenames
-    else:
-        print()
-        return file_list
-    
+    file_list += longer_filenames
+    if verbose and file_list:
+        print(f"\nFound files:")
+        for found_file in file_list:
+            print(f"{toHexString(found_file)}")
+    return file_list
+
 
 def find_files_by_wordlist(conn, cla, wordlist='rid_list.txt', throttle_msec=0,
                            max_fail=5, verbose=False, tarpit_threshold=100):
-    if type(cla) == str:
-        cla = int(cla,16)
     throttle_sec = throttle_msec / 1000
     file_list = []
     with open(wordlist, 'r') as wordlist_file:
@@ -169,17 +169,8 @@ def find_files_by_wordlist(conn, cla, wordlist='rid_list.txt', throttle_msec=0,
                     exit()
             if sw1 in [0x90, 0x61]:
                 file_list.append(list(filename))
-        if file_list:
-            longer_filenames = []
-            for identified_file in file_list:
-                longer_filenames += find_files_by_name(conn, cla, identified_file,
-                                                    brute_length=1, throttle_msec=throttle_msec,
-                                                    max_fail=max_fail, verbose=verbose)
-            if longer_filenames:
-                file_list = longer_filenames
-            if verbose:
-                print(f"\nFound files:")
-                for found_file in file_list:
-                    print(f"{toHexString(found_file)}")
-            
+        if verbose and file_list:
+            print(f"\nFound files:")
+            for found_file in file_list:
+                print(f"{toHexString(found_file)}")
     return file_list

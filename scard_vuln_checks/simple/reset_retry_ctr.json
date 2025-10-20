@@ -1,0 +1,6 @@
+{
+    "name": "Unauthenticated Reset Retry Counter",
+    "vuln": "The card allows the \"Reset Retry Counter\" to be used without first unlocking the card. This allows infinite attempts to authenticate to the card, enabling brute force attacks against the card.",
+    "request": ["00", "2c", "03", "00"],
+    "positive_response": ["90"]
+}

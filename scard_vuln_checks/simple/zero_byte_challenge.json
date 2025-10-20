@@ -1,0 +1,7 @@
+{
+    "name": "Zero-Byte Cryptographic Challenge",
+    "vuln": "The card accepts a request for a zero-byte cryptographic challenge. If an attacker can intercept communications between this card and a terminal that is willing to respond to a zero-byte challenge, they can replay the valid response, as a zero-byte challenge will never change.",
+    "request": ["00", "26", "01", "00", "00"],
+    "scope": "card",
+    "positive_response": ["90"]
+}

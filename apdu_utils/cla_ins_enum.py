@@ -1,4 +1,4 @@
-# import pdb
+import pdb
 from time import sleep
 from smartcard.Exceptions import CardConnectionException, NoCardException
 
@@ -39,14 +39,27 @@ known_ins_values = {
     0x2a: 'ISO7816-4: Perform Security Operation',
     0x2c: 'ISO7816-4: Reset Retry Counter',
     0x2e: '3GPP TS 11.11: Write Code Status',
+    0x30: '3GPP TS 51.011: Decrease',
     0x32: '3GPP TS 11.11: Increase',
+    0x34: 'EN 726-3: Decrease Stamped',
+    0x36: 'EN 726-3: Increase Stamped',
     0x39: 'Javacard: Authenticate User',
     0x44: 'ISO7816-4: Activate File',
     0x46: 'ISO7816-4: Generate Asymmetric Key Pair',
     0x50: 'GlobalPlatform: Initialize Update',
-    0x70: 'ISO7816-4: Manage Channel',
-    0x78: 'GlobalPlatform: End R-MAC Session',
-    0x7a: 'GlobalPlatform: Begin R-MAC Session',
+    0x52: 'EN 1546-3: Credit IEP',
+    0x54: 'EN 1546-3: Debit IEP',
+    0x56: 'EN 1546-3: Convert IEP Currency',
+    0x58: 'EN 1546-3: Update IEP Parameter',
+    0x5a: 'EN 1546-3: Get Previous IEP Signature',
+    0x70: 'ISO7816-4: Manage Channel / EN 1546-3: Initialize PSAM',
+    0x72: 'EN 1546-3: CREDIT PSAM, Pay from IEP to the PSAM',
+    0x74: 'EN 1546-3: PSAM Complete',
+    0x76: 'EN 1546-3: Initialize PSAM',
+    0x78: 'GlobalPlatform: End R-MAC Session / EN 1546-3: Execute PSAM online booking of an amount',
+    0x7a: 'GlobalPlatform: Begin R-MAC Session / EN 1546-3: End PSAM online booking of an amount',
+    0x7c: 'EN 1546-3: INITIALIZE PSAM for Offline Collection',
+    0x7e: 'EN 1546-3: End PSAM offline booking of an amount',
     0x82: 'ISO7816-4: External (/ Mutual) Authenticate',
     0x84: 'ISO7816-4: Get Challenge',
     0x86: 'ISO7816-4: General Authenticate',
@@ -57,12 +70,14 @@ known_ins_values = {
     0xa2: 'ISO7816-4: Search Record',
     0xa4: 'ISO7816-4: Select File/Application',
     0xa8: 'VSDC: Get Processing Options',
-    0xae: 'EMV Book 3: Generate Application Cryptogram',
+    0xac: 'EN 726-3: Close application',
+    0xae: 'EMV Book 3: Generate Application Cryptogram / EN 726-3: Execute file',
     0xb0: 'ISO7816-4: Read Binary',
     0xb1: 'ISO7816-4: Read Binary',
     0xb2: 'ISO7816-4: Read Record(s)',
     0xb3: 'ISO7816-4: Read Record(s)',
-    0xb4: 'Javacard: Component Data',
+    0xb4: 'Javacard: Component Data, EN 726-3: Read Binary Stamped',
+    0xb6: 'EN 726-3: Read Record Stamped',
     0xb8: 'Javacard: Create Applet',
     0xba: 'Javacard: CAP End',
     0xbc: 'Javacard: Component End',
@@ -76,6 +91,7 @@ known_ins_values = {
     0xd0: 'ISO7816-4: Write Binary',
     0xd1: 'ISO7816-4: Write Binary',
     0xd2: 'ISO7816-4: Write Record',
+    0xd4: 'EN 726-3: Extend file',
     0xd6: 'ISO7816-4: Update Binary',
     0xd7: 'ISO7816-4: Update Binary',
     0xd8: 'GlobalPlatform: Put Key / EMV: Set Card Status',
@@ -101,11 +117,14 @@ known_ins_values = {
 }
 
 
-def cla_enum(conn, full_enum=False, max_fail=5, throttle_msec=0):
+def cla_enum(conn, file, file_select_method, full_enum=False, max_fail=5, throttle_msec=0):
     responses = {}
     fail_count = 0
     needs_reconnect = 0
     throttle_sec = throttle_msec / 1000
+    file_select_methods = {'id': 0, 'path': 2, 'name': 4}
+    p1 = file_select_methods[file_select_method]
+    file_len = len(file)
 
     cla_list = [0]
     cla_list += range(0x1, 0x100) if full_enum else range(0x80, 0x100)
@@ -118,7 +137,8 @@ def cla_enum(conn, full_enum=False, max_fail=5, throttle_msec=0):
                 conn.reconnect()
                 needs_reconnect = 0
             sleep(throttle_sec)
-            (resp, sw1, sw2) = conn.transmit([cla, 0xA4, 0, 0])  # 0xA4 is SELECT FILE command
+            # SELECT the file we already know with the candidate CLA
+            (resp, sw1, sw2) = conn.transmit([cla, 0xA4, p1, 0, file_len] + list(file)) 
             try:  # hacky but we need to check if we have recorded anything for this sw1/sw2 pair yet
                 _ = responses[(sw1, sw2)]
             except KeyError:
@@ -130,7 +150,7 @@ def cla_enum(conn, full_enum=False, max_fail=5, throttle_msec=0):
         except (CardConnectionException, NoCardException):
             needs_reconnect = 1
             if fail_count >= max_fail:
-                print(f"Failed {max_fail} times with CLA {hex(cla)}, moving on")
+                print(f"Failed {max_fail} times with CLA {cla:02x}, moving on")
             else:
                 fail_count += 1
                 continue
@@ -142,7 +162,7 @@ def cla_enum(conn, full_enum=False, max_fail=5, throttle_msec=0):
     return responses
 
 
-def ins_enum(conn, cla, file, file_select_method, use_blocklist=True, max_fail=5, throttle_msec=0, verbose=False):
+def ins_enum(conn, file, file_select_method, cla, use_blocklist=True, max_fail=5, throttle_msec=0, verbose=False):
     responses = {}
     fail_count = 0
     throttle_sec = throttle_msec / 1000
@@ -152,7 +172,9 @@ def ins_enum(conn, cla, file, file_select_method, use_blocklist=True, max_fail=5
 
     try:
         conn.reconnect()
-        conn.transmit([cla, 0xa4, p1, 0, file_len] + list(file))
+        # reselect the file if not using implicit file selection
+        if file != "":
+            conn.transmit([cla, 0xa4, p1, 0, file_len] + list(file))
         needs_reconnect = 0
     except (CardConnectionException, NoCardException):
         fail_count += 1
@@ -168,7 +190,9 @@ def ins_enum(conn, cla, file, file_select_method, use_blocklist=True, max_fail=5
         try:
             if needs_reconnect:
                 conn.reconnect()
-                conn.transmit([cla, 0xa4, p1, 0, file_len] + list(file))
+                # reselect the file if not using implicit file selection
+                if file != "":
+                    conn.transmit([cla, 0xa4, p1, 0, file_len] + list(file))
                 needs_reconnect = 0
             sleep(throttle_sec)
             (resp, sw1, sw2) = conn.transmit([cla, ins, 0, 0])
@@ -183,16 +207,70 @@ def ins_enum(conn, cla, file, file_select_method, use_blocklist=True, max_fail=5
         except (CardConnectionException, NoCardException):
             needs_reconnect = 1
             if fail_count >= max_fail:
-                print(f"Failed {max_fail} times with INS {hex(ins)}, moving on")
+                print(f"Failed {max_fail} times with INS {ins:02x}, moving on")
             else:
                 fail_count += 1
                 continue
         try:
             ins = next(ins_iter)
             if verbose:
-                print(f"\rTrying INS {hex(ins)[2:]}", end='', flush=True)
+                print(f"\rTrying INS {ins:02x}", end='', flush=True)
         except StopIteration:
             if verbose:
                 print()
+            break
+    return responses
+
+
+def cla_ins_enum(conn, file, file_select_method, use_blocklist=True, max_fail=5, throttle_msec=0, verbose=False):
+    responses = {}
+    fail_count = 0
+    throttle_sec = throttle_msec / 1000
+    file_select_methods = {'id': 0, 'path': 2, 'name': 4}
+    p1 = file_select_methods[file_select_method]
+    file_len = len(file)
+
+    cla_iter = iter(range(0x100))
+    cla = next(cla_iter)
+
+    while True: # CLA loop
+        if use_blocklist:
+            ins_iter = filter(lambda x: x not in ins_blocklist, range(0x100))
+        else:
+            ins_iter = range(0x100)
+        ins = next(ins_iter)
+        while True: # INS loop
+            try:
+                sleep(throttle_sec)
+                # reselect the known file unless it is implicit selection
+                if file != "":
+                    conn.transmit([0x00, 0xA4, p1, 0x00, file_len] + list(file))
+                (resp, sw1, sw2) = conn.transmit([cla, ins, 0, 0])
+                try:  # hacky but we need to check if we have recorded anything for this sw1/sw2 pair yet
+                    _ = responses[(sw1, sw2)]
+                except KeyError:
+                    responses[(sw1, sw2)] = {}
+                responses[(sw1, sw2)][(cla,ins)] = resp
+            except KeyboardInterrupt:
+                print("Caught keyboard interrupt, exiting...")
+                exit()
+            except (CardConnectionException, NoCardException):
+                needs_reconnect = 1
+                if fail_count >= max_fail:
+                    print(f"Failed {max_fail} times with CLA {cla:02x} INS {ins:02x}, moving on")
+                else:
+                    fail_count += 1
+                    continue
+            except TypeError:
+                pdb.set_trace()
+            try:
+                ins = next(ins_iter)
+                if verbose:
+                    print(f"\rTrying CLA {cla:02x} INS {ins:02x}", end='', flush=True)
+            except StopIteration:
+                break
+        try:
+            cla = next(cla_iter)
+        except StopIteration:
             break
     return responses

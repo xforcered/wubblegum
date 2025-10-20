@@ -1,0 +1,7 @@
+{
+    "name": "Unauthenticated Disable Verification",
+    "vuln": "The card does not require a user to verify before disabling verification.",
+    "request": ["00", "26", "00", "00"],
+    "scope":"file",
+    "positive_responses": [["90"]]
+}
