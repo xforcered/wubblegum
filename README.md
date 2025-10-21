@@ -8,15 +8,15 @@ WARNING: Wubblegum is still experimental and will need much wider testing on a v
 To install wubblegum, clone this repo and install the dependencies.
 
 ### Pre-requisites
-wubblegum depends on pyscard. You will also need Python3.6 or later.
+wubblegum depends on `pyscard` for low level smartcard functionality and `ishell` for the interactive shell provided by the APDU console. You will also need Python3.6 or later.
 
 To install these dependencies:
 ```sh
-python3 -m pip install pyscard
+pip install -r requirements.txt
 ```
 
 ## Card reader support
-wubblegum's card reader support is provided by pyscard, which should work with a card reader that states it is PCSC or CCID compatible.
+wubblegum's card reader support is provided by `pyscard`, which should work with a card reader that states it is PCSC or CCID compatible.
 
 ## Suggested card readers
 
@@ -83,6 +83,7 @@ Lc, Data, and Le may be omitted if not necessary for the command being issued. F
 
 ## Usage
 wubblegum is a command line tool. To understand the usage of wubblegum and its options, run `python3 ./wubblegum.py --help` or read on.
+If you want to issue commands (including raw APDUs in hex format) to a card interactively, run `python3 ./apdu_console.py`.
 
 ### Selecting a card reader
 You should check using `--show-readers` to see if there is more than one card reader recognized on your system. Some devices like Yubikeys are recognized as card readers. If you need to select a reader that isn't the first in the list (index 0) you can use `-r x` where x is the index of the reader you wish to use, as listed by `--show-readers`.
@@ -98,6 +99,11 @@ fn - Files by filename
 i - Instruction (INS) values
 d - Data
 ```
+
+### Card state
+Wubblegum and the APDU console can keep track of what has been discovered during card enumeration. use `-s` or `--state-file` to specify a file to load and save card data to. This can be useful for various reasons, such as if you want to enumerate a card with wubblegum and then interact with it using the APDU console while keeping track of the structure of the target card.
+
+Any option that requires prior enumeration of the card (e.g. INS enumeration needs valid CLA values) can be satisfied by a card state that contains the needed card data.
 
 ### CLA enumeration
 Smart cards have different sets of commands they support based on the CLA value. The error messages returned can vary greatly from card to card, so Wubblegum asks the user to manually prune responses, grouping responses by the particular response code returned.
@@ -141,5 +147,5 @@ To enumerate valid record identifiers / EF identifiers / tags and use them to ex
 
 
 ### Example
-To enumerate CLA, Files by name using the included RID wordlist, INS with autoprune, and card data from the first card reader in verbose mode:
-`python3 ./wubblegum.py --enumerate c fn i d --wordlist rid_list.txt --ins-auto-prune -v`
+To enumerate CLA, Files by name using the included RID wordlist, INS with autoprune, and card data from the first card reader in verbose mode, saving to `card1.state`:
+`python3 ./wubblegum.py --enumerate c fn i d --wordlist rid_list.txt --ins-auto-prune -v -s card1.state`
